@@ -1409,7 +1409,7 @@ def print_accounts_table(
     plan_width = 6
     hourly_width = 20
     weekly_width = 20
-    space_width = 24
+    space_width = 18
     table_width = 2 + 2 + email_width + 1 + space_width + 1 + plan_width + 1 + hourly_width + 1 + weekly_width + 2
 
     print()
