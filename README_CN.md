@@ -21,6 +21,7 @@
 - 当前账号用 `[当前]` 标记，并固定显示在最前，同时与其他账号空一行区分
 - 切换成功后自动刷新页面
 - 多个账号并发实时刷新，减少等待时间
+- 支持在余量页直接调用官方 `codex login` 添加新账号，并自动归档到切换器
 - 提供 Agent 友好的非交互 CLI：`--list`、`--json`、`--best`、`--switch`、`--save-current`
 - 项目内置专用 Skill，方便 Agent 按统一规则操作
 
@@ -54,7 +55,7 @@ python3 -m pip install "git+https://github.com/mileson/CJFCodexSwitcher.git"
 前置要求：
 
 - Python 3.8+
-- 本机已经使用过 Codex，并存在 `~/.codex/auth.json`
+- 本机可用 `codex` 命令
 
 从源码安装：
 
@@ -81,12 +82,14 @@ codex-switcher
 底部操作：
 
 - `Enter`：刷新当前页面
+- 输入 `a`：调用官方 `codex login` 添加账号，登录成功后自动归档并保持当前账号
 - 输入 `#` 序号：切换到对应账号
 - 输入 `0`：退出工具
 
 说明：
 
 - 当前账号如果尚未存档，进入查看余量页时会自动创建存档
+- 添加账号复用官方浏览器登录流程；如果处于远程 / 无头环境，可手动使用 `codex login --device-auth`
 
 ## Agent / CLI 快捷命令
 
@@ -150,7 +153,7 @@ CJFCodexSwitcher/
 
 当前推荐版本 release notes：
 
-- [v0.1.2 Release Notes](docs/releases/v0.1.2.md)
+- [v0.1.4 Release Notes](docs/releases/v0.1.4.md)
 
 ## License
 

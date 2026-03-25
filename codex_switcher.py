@@ -4,10 +4,10 @@
 Codex Switcher - 跨平台 Codex 账号管理工具
 
 功能:
-  (1) 查看所有账号余量（包括 5小时/每周限额）
-  (2) 切换账号
-  (3) 存档当前登录账号
-  (4) 刷新使用量（通过浏览器）
+  (1) 启动后直接进入账号余量列表
+  (2) 按编号切换已存档账号
+  (3) 在余量页内直接调用官方 codex login 添加账号
+  (4) 自动存档当前登录账号并刷新使用量
   (0) 退出
 
 支持平台: macOS, Linux, Windows
@@ -37,6 +37,7 @@ TOKEN_REFRESH_INTERVAL_DAYS = 8
 USAGE_API_URL = "https://chatgpt.com/backend-api/wham/usage"
 RESTART_DRY_RUN_ENV = "CODEX_SWITCHER_DRY_RUN_RESTART"
 MAX_REFRESH_WORKERS = 6
+LOGIN_FILE_CREDENTIALS_CONFIG = 'cli_auth_credentials_store="file"'
 ANSI_ESCAPE_RE = re.compile(r'\x1b\[[0-9;]*m')
 
 # ============== 跨平台路径配置 ==============
@@ -913,27 +914,146 @@ def load_current_auth() -> Optional[dict]:
     """加载当前 auth.json"""
     return load_auth_data_from_path(get_auth_file())
 
-def save_current_auth(name: str) -> bool:
-    """存档当前登录账号"""
-    auth_file = get_auth_file()
-    if not auth_file.exists():
-        return False
+def save_auth_file_snapshot(
+    source_path: Path,
+    name: str,
+    replace_path: Optional[Path] = None,
+    allow_timestamp_suffix: bool = True,
+) -> Optional[Path]:
+    """将指定 auth 文件存档到账号目录"""
+    if not source_path.exists():
+        return None
 
     accounts_dir = get_accounts_dir()
     accounts_dir.mkdir(parents=True, exist_ok=True)
 
     safe_name = "".join(c if c.isalnum() or c in '-_' else '_' for c in name)
 
-    target_file = accounts_dir / f"auth_{safe_name}.json"
-    if target_file.exists():
+    target_file = Path(replace_path) if replace_path else accounts_dir / f"auth_{safe_name}.json"
+    if not replace_path and allow_timestamp_suffix and target_file.exists():
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         target_file = accounts_dir / f"auth_{safe_name}_{timestamp}.json"
 
     try:
-        shutil.copy2(auth_file, target_file)
+        shutil.copy2(source_path, target_file)
+        return target_file
+    except Exception:
+        return None
+
+def save_current_auth(name: str) -> bool:
+    """存档当前登录账号"""
+    return save_auth_file_snapshot(get_auth_file(), name) is not None
+
+def read_auth_file_bytes(auth_path: Path) -> Optional[bytes]:
+    """读取 auth 文件原始字节，用于失败回滚"""
+    if not auth_path.exists():
+        return None
+    try:
+        return auth_path.read_bytes()
+    except Exception:
+        return None
+
+def restore_auth_file(auth_path: Path, backup_bytes: Optional[bytes]) -> bool:
+    """恢复 auth 文件到备份内容"""
+    try:
+        if backup_bytes is None:
+            if auth_path.exists():
+                auth_path.unlink()
+            return True
+
+        auth_path.parent.mkdir(parents=True, exist_ok=True)
+        auth_path.write_bytes(backup_bytes)
         return True
     except Exception:
         return False
+
+def find_saved_account_path(record_key: str = '', email: str = '') -> Optional[Path]:
+    """按账号身份或邮箱查找已存档文件"""
+    accounts_dir = get_accounts_dir()
+    if not accounts_dir.exists():
+        return None
+
+    email_lower = email.lower() if email else ''
+    fallback_path = None
+    for auth_file in sorted(accounts_dir.glob('auth_*.json')):
+        auth_data = load_auth_data_from_path(auth_file)
+        if not auth_data:
+            continue
+        info = get_account_info(auth_data, str(auth_file))
+        if not info:
+            continue
+        if record_key and info.get('record_key') == record_key:
+            return auth_file
+        if email_lower and info.get('email', '').lower() == email_lower and fallback_path is None:
+            fallback_path = auth_file
+
+    return fallback_path
+
+def upsert_current_auth_archive(account_info: dict) -> Tuple[bool, Optional[Path], str]:
+    """按账号身份更新或创建当前 auth 存档"""
+    record_key = account_info.get('record_key', '')
+    email = account_info.get('email', '')
+    existing_path = find_saved_account_path(record_key, email)
+    archive_path = save_auth_file_snapshot(
+        get_auth_file(),
+        email or 'account',
+        replace_path=existing_path,
+        allow_timestamp_suffix=existing_path is None,
+    )
+    if not archive_path:
+        return False, None, 'failed'
+    return True, archive_path, 'updated' if existing_path else 'created'
+
+def run_codex_login(auth_mode_args: Optional[List[str]] = None) -> dict:
+    """委托官方 codex login 完成登录"""
+    codex_binary = shutil.which('codex')
+    if not codex_binary:
+        return {
+            'ok': False,
+            'error': '未找到 codex 命令，请先安装或确认 PATH 配置',
+        }
+
+    auth_path = get_auth_file()
+    backup_bytes = read_auth_file_bytes(auth_path)
+    before_auth = load_auth_data_from_path(auth_path)
+    before_info = get_account_info(before_auth, str(auth_path)) if before_auth else None
+    ensure_current_account_saved()
+
+    command = [codex_binary, '-c', LOGIN_FILE_CREDENTIALS_CONFIG, 'login']
+    if auth_mode_args:
+        command.extend(auth_mode_args)
+    result = subprocess.run(command, check=False)
+
+    after_auth = load_auth_data_from_path(auth_path)
+    after_info = get_account_info(after_auth, str(auth_path)) if after_auth else None
+    if not after_info:
+        restored = restore_auth_file(auth_path, backup_bytes)
+        return {
+            'ok': False,
+            'error': '未获取到有效登录信息，已恢复原账号',
+            'restored': restored,
+            'returncode': result.returncode,
+        }
+
+    saved, archive_path, archive_action = upsert_current_auth_archive(after_info)
+    same_account = (
+        before_info is not None and
+        before_info.get('record_key') and
+        before_info.get('record_key') == after_info.get('record_key')
+    )
+    payload = {
+        'ok': True,
+        'account': after_info,
+        'archive_path': str(archive_path) if archive_path else '',
+        'archive_action': archive_action,
+        'same_account': same_account,
+        'returncode': result.returncode,
+    }
+    if not saved:
+        payload['archive_action'] = 'failed'
+        payload['warning'] = '登录成功，但账号存档失败'
+
+    return payload
 
 def list_saved_accounts() -> List[dict]:
     """列出所有已存档的账号"""
@@ -1537,9 +1657,51 @@ def print_view_all_actions(rows: List[dict]):
     print(f"{Colors.BOLD}  操作面板{Colors.ENDC}")
     print(f"{Colors.DIM}  {'─' * 40}{Colors.ENDC}")
     print(f"  {Colors.CYAN}[编号]{Colors.ENDC} 切换账号")
+    print(f"  {Colors.CYAN}[a]{Colors.ENDC} 添加账号（官方登录）")
     print(f"  {Colors.CYAN}[0]{Colors.ENDC} 退出工具")
     print(f"  {Colors.DIM}[Enter]{Colors.ENDC} 刷新当前页面")
     print()
+
+def add_account_from_view() -> bool:
+    """在余量页中通过官方 codex login 添加账号"""
+    clear_screen()
+    print_header()
+    print(f"\n{Colors.CYAN}>>> 添加账号{Colors.ENDC}")
+    print()
+    print(f"{Colors.DIM}  将调用官方 codex login 完成登录。{Colors.ENDC}")
+    print(f"{Colors.DIM}  登录成功后会自动读取当前账号、写入存档，并保持该账号为当前账号。{Colors.ENDC}")
+    print(f"{Colors.DIM}  如浏览器不可用，可在登录界面使用 device code，或稍后手动运行 codex login --device-auth。{Colors.ENDC}")
+    print()
+
+    result = run_codex_login()
+    print()
+    if not result.get('ok'):
+        print(f"{Colors.RED}  ✗ 添加账号失败：{result.get('error', '未知错误')}{Colors.ENDC}")
+        input(f"{Colors.DIM}按回车键继续...{Colors.ENDC}")
+        return False
+
+    account = result.get('account', {})
+    email = account.get('email', 'Unknown')
+    archive_action = result.get('archive_action', 'failed')
+    if result.get('same_account'):
+        print(f"{Colors.YELLOW}  当前仍为同一账号：{email}{Colors.ENDC}")
+    else:
+        print(f"{Colors.GREEN}  ✓ 添加并切换成功：{email}{Colors.ENDC}")
+
+    if archive_action == 'created':
+        print(f"{Colors.DIM}  已新增账号存档: {result.get('archive_path', '')}{Colors.ENDC}")
+    elif archive_action == 'updated':
+        print(f"{Colors.DIM}  已更新现有账号存档: {result.get('archive_path', '')}{Colors.ENDC}")
+    else:
+        print(f"{Colors.YELLOW}  {result.get('warning', '账号存档未更新')}{Colors.ENDC}")
+
+    if result.get('same_account'):
+        time.sleep(1.0)
+        return True
+
+    finish_switch_with_restart()
+    time.sleep(1.0)
+    return True
 
 def view_all_accounts():
     """查看所有账号（自动刷新使用量）"""
@@ -1570,11 +1732,14 @@ def view_all_accounts():
             continue
         if choice == '0':
             return
+        if choice.lower() == 'a':
+            add_account_from_view()
+            continue
 
         try:
             idx = int(choice) - 1
         except ValueError:
-            print(f"\n{Colors.RED}  请输入编号、0 或直接回车{Colors.ENDC}")
+            print(f"\n{Colors.RED}  请输入编号、a、0 或直接回车{Colors.ENDC}")
             input(f"{Colors.DIM}按回车键继续...{Colors.ENDC}")
             continue
 

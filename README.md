@@ -28,6 +28,7 @@ Fast switching and quota inspection for multiple Codex accounts.
 - Active account shown at the top and separated from the rest
 - Live refresh of quota windows and reset times
 - Automatic snapshot save for the current account when needed
+- Add a new account directly from the quota view via the official `codex login` flow
 - Agent-friendly CLI: `--list`, `--json`, `--best`, `--switch`, `--save-current`
 - Homebrew and `pipx` friendly distribution
 - Repository-local skill for guided agent usage
@@ -62,7 +63,7 @@ python3 -m pip install "git+https://github.com/mileson/CJFCodexSwitcher.git"
 Requirements:
 
 - Python 3.8+
-- An existing local Codex login at `~/.codex/auth.json`
+- A working `codex` CLI on your machine
 
 Install from source:
 
@@ -89,8 +90,14 @@ Key fields:
 Bottom actions:
 
 - `Enter`: refresh current page
+- `a`: start the official `codex login` flow, then auto-save the authenticated account and keep it active
 - `#`: switch to the selected account
 - `0`: exit the tool
+
+Notes:
+
+- If the current account is not archived yet, entering the live quota view will save it automatically
+- The add-account flow reuses the official browser login from `codex login`; in headless environments you can use `codex login --device-auth`
 
 ## Agent / CLI Commands
 
@@ -149,7 +156,7 @@ See [CONTRIBUTING.md](./CONTRIBUTING.md).
 
 Current recommended release notes:
 
-- [v0.1.3 Release Notes](docs/releases/v0.1.3.md)
+- [v0.1.4 Release Notes](docs/releases/v0.1.4.md)
 
 ## License
 
