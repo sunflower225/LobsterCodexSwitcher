@@ -276,6 +276,64 @@ def list_processes() -> List[Tuple[int, str]]:
             continue
     return processes
 
+def list_windows_processes() -> List[dict]:
+    """列出 Windows 进程信息"""
+    if platform.system() != 'Windows':
+        return []
+
+    script = (
+        "Get-CimInstance Win32_Process | "
+        "Select-Object ProcessId,ParentProcessId,Name,ExecutablePath,CommandLine | "
+        "ConvertTo-Json -Compress"
+    )
+    try:
+        result = subprocess.run(
+            ['powershell', '-NoProfile', '-Command', script],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except Exception:
+        return []
+
+    if result.returncode != 0:
+        return []
+
+    raw = result.stdout.strip()
+    if not raw:
+        return []
+
+    try:
+        data = json.loads(raw)
+    except Exception:
+        return []
+
+    if isinstance(data, dict):
+        data = [data]
+    if not isinstance(data, list):
+        return []
+
+    processes = []
+    for item in data:
+        if not isinstance(item, dict):
+            continue
+        try:
+            pid = int(item.get('ProcessId') or 0)
+            ppid = int(item.get('ParentProcessId') or 0)
+        except Exception:
+            continue
+        if pid <= 0:
+            continue
+
+        processes.append({
+            'pid': pid,
+            'ppid': ppid,
+            'name': str(item.get('Name') or ''),
+            'exe_path': str(item.get('ExecutablePath') or ''),
+            'command_line': str(item.get('CommandLine') or ''),
+        })
+    return processes
+
 def list_process_tree() -> Dict[int, Tuple[int, str]]:
     """列出当前用户进程树"""
     try:
@@ -319,6 +377,23 @@ def get_process_cwd(pid: int) -> str:
 
 def detect_codex_desktop_instances() -> List[dict]:
     """检测运行中的 Codex Desktop 主进程"""
+    if platform.system() == 'Windows':
+        instances = []
+        for proc in list_windows_processes():
+            exe_path = (proc.get('exe_path') or '').replace('/', '\\')
+            command = proc.get('command_line', '')
+            if not exe_path.lower().endswith('\\app\\codex.exe'):
+                continue
+            if '\\resources\\codex.exe' in exe_path.lower():
+                continue
+            if '--type=' in command:
+                continue
+            instances.append({
+                'pid': proc['pid'],
+                'app_path': exe_path,
+            })
+        return instances
+
     instances = []
     for pid, command in list_processes():
         if '/Contents/MacOS/Codex' not in command:
@@ -338,6 +413,9 @@ def detect_codex_desktop_instances() -> List[dict]:
 
 def detect_codex_cli_instances() -> List[dict]:
     """检测运行中的 codex CLI 进程"""
+    if platform.system() == 'Windows':
+        return []
+
     tree = list_process_tree()
     instances = []
     for pid, (ppid, command) in tree.items():
@@ -382,6 +460,27 @@ def escape_applescript_string(value: str) -> str:
     """转义 AppleScript 字符串"""
     return value.replace('\\', '\\\\').replace('"', '\\"')
 
+def escape_powershell_string(value: str) -> str:
+    """转义 PowerShell 单引号字符串"""
+    return value.replace("'", "''")
+
+def collect_windows_restart_targets(desktop_instances: List[dict]) -> List[str]:
+    """收集 Windows 下需要关闭的 Codex 可执行文件路径"""
+    targets = []
+    seen = set()
+    for item in desktop_instances:
+        app_path = str(item.get('app_path') or '')
+        if not app_path:
+            continue
+
+        for candidate in [app_path, str(Path(app_path).parent / 'resources' / 'codex.exe')]:
+            normalized = candidate.lower()
+            if normalized in seen:
+                continue
+            seen.add(normalized)
+            targets.append(candidate)
+    return targets
+
 def build_restart_script(
     script_path: Path,
     desktop_instances: List[dict],
@@ -408,10 +507,51 @@ def build_restart_script(
     lines.append(f"rm -f {shlex.quote(str(script_path))}")
     return '\n'.join(lines) + '\n'
 
+def build_windows_restart_script(script_path: Path, desktop_instances: List[dict]) -> str:
+    """构建 Windows PowerShell 重启脚本"""
+    desktop_pids = [str(int(item['pid'])) for item in desktop_instances if item.get('pid')]
+    restart_paths = []
+    seen_paths = set()
+    for item in desktop_instances:
+        app_path = str(item.get('app_path') or '')
+        if not app_path:
+            continue
+        normalized = app_path.lower()
+        if normalized in seen_paths:
+            continue
+        seen_paths.add(normalized)
+        restart_paths.append(app_path)
+
+    target_paths = collect_windows_restart_targets(desktop_instances)
+    escaped_target_paths = ', '.join(
+        f"'{escape_powershell_string(path)}'" for path in target_paths
+    ) or "''"
+    escaped_restart_paths = ', '.join(
+        f"'{escape_powershell_string(path)}'" for path in restart_paths
+    ) or "''"
+    escaped_script_path = escape_powershell_string(str(script_path))
+
+    lines = [
+        "$ErrorActionPreference = 'SilentlyContinue'",
+        "Start-Sleep -Seconds 1",
+        f"$desktopPids = @({', '.join(desktop_pids)})" if desktop_pids else "$desktopPids = @()",
+        f"$targetPaths = @({escaped_target_paths})",
+        f"$restartPaths = @({escaped_restart_paths})",
+        "foreach ($pid in $desktopPids) { Stop-Process -Id $pid -Force -ErrorAction SilentlyContinue }",
+        "$lookup = @{}",
+        "foreach ($path in $targetPaths) { if ($path) { $lookup[$path.ToLowerInvariant()] = $true } }",
+        "Get-CimInstance Win32_Process | Where-Object { $_.ExecutablePath -and $lookup.ContainsKey($_.ExecutablePath.ToLowerInvariant()) } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }",
+        "Start-Sleep -Seconds 1",
+        "foreach ($path in $restartPaths) { if ($path -and (Test-Path -LiteralPath $path)) { Start-Process -FilePath $path | Out-Null } }",
+        f"Remove-Item -LiteralPath '{escaped_script_path}' -Force -ErrorAction SilentlyContinue",
+    ]
+    return '\r\n'.join(lines) + '\r\n'
+
 def schedule_codex_restart() -> Tuple[bool, bool, str]:
     """安排后台重启运行中的 Codex Desktop 和 CLI"""
-    if platform.system() != 'Darwin':
-        return False, False, '自动重启目前仅支持 macOS'
+    current_platform = platform.system()
+    if current_platform not in {'Darwin', 'Windows'}:
+        return False, False, '自动重启目前仅支持 macOS 和 Windows'
 
     desktop_instances = detect_codex_desktop_instances()
     cli_instances = detect_codex_cli_instances()
@@ -420,12 +560,19 @@ def schedule_codex_restart() -> Tuple[bool, bool, str]:
 
     runtime_dir = get_switcher_dir() / 'runtime'
     runtime_dir.mkdir(parents=True, exist_ok=True)
-    script_path = runtime_dir / f"restart_codex_{int(time.time())}.sh"
-    script_path.write_text(
-        build_restart_script(script_path, desktop_instances, cli_instances),
-        encoding='utf-8',
-    )
-    script_path.chmod(0o700)
+    if current_platform == 'Windows':
+        script_path = runtime_dir / f"restart_codex_{int(time.time())}.ps1"
+        script_path.write_text(
+            build_windows_restart_script(script_path, desktop_instances),
+            encoding='utf-8',
+        )
+    else:
+        script_path = runtime_dir / f"restart_codex_{int(time.time())}.sh"
+        script_path.write_text(
+            build_restart_script(script_path, desktop_instances, cli_instances),
+            encoding='utf-8',
+        )
+        script_path.chmod(0o700)
 
     dry_run = os.environ.get(RESTART_DRY_RUN_ENV) == '1'
     if dry_run:
@@ -435,12 +582,20 @@ def schedule_codex_restart() -> Tuple[bool, bool, str]:
         )
         return True, True, message
 
-    subprocess.Popen(
-        ['/bin/zsh', str(script_path)],
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        start_new_session=True,
-    )
+    if current_platform == 'Windows':
+        subprocess.Popen(
+            ['powershell', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', str(script_path)],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0),
+        )
+    else:
+        subprocess.Popen(
+            ['/bin/zsh', str(script_path)],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
     message = (
         f"已安排关闭 Codex 客户端及相关 CLI 进程，并重启 {len(desktop_instances)} 个 Codex 客户端"
     )
