@@ -240,6 +240,42 @@ def extract_claims_from_id_token(id_token: str) -> Optional[dict]:
         'record_key': record_key,
     }
 
+def normalize_organizations(auth_info: dict) -> List[dict]:
+    """标准化 workspace/organization 信息"""
+    raw_orgs = auth_info.get('organizations', [])
+    if not isinstance(raw_orgs, list):
+        return []
+
+    organizations = []
+    for raw_org in raw_orgs:
+        if not isinstance(raw_org, dict):
+            continue
+        organizations.append({
+            'id': str(raw_org.get('id', '') or '').strip(),
+            'title': str(raw_org.get('title', '') or '').strip(),
+            'role': str(raw_org.get('role', '') or '').strip(),
+            'is_default': bool(raw_org.get('is_default')),
+        })
+    return organizations
+
+def get_primary_workspace(organizations: List[dict]) -> dict:
+    """优先选择默认 workspace，其次取第一个"""
+    for org in organizations:
+        if org.get('is_default'):
+            return org
+    return organizations[0] if organizations else {}
+
+def format_workspace_display(organizations: List[dict], primary: dict) -> str:
+    """格式化 SPACE 列展示文本"""
+    if not primary:
+        return '-'
+
+    label = primary.get('title') or primary.get('id') or '-'
+    extra_count = max(0, len(organizations) - 1)
+    if extra_count:
+        return f"{label} (+{extra_count})"
+    return label
+
 def get_usage_cache_key(email: str, account_id: str = '', record_key: str = '') -> str:
     """生成 usage 缓存 key"""
     if record_key:
@@ -1009,6 +1045,8 @@ def get_account_info(auth_data: dict, file_path: str = '') -> Optional[dict]:
     account_id = tokens.get('account_id', '') or claims.get('chatgpt_account_id', '')
     chatgpt_user_id = claims.get('chatgpt_user_id', '')
     record_key = claims.get('record_key', '')
+    organizations = normalize_organizations(auth_info)
+    primary_workspace = get_primary_workspace(organizations)
     token_payload = decode_jwt_payload(access_token) or {}
     token_exp = token_payload.get('exp', 0) or payload.get('exp', 0)
 
@@ -1019,6 +1057,12 @@ def get_account_info(auth_data: dict, file_path: str = '') -> Optional[dict]:
         'account_id': account_id,
         'chatgpt_user_id': chatgpt_user_id,
         'record_key': record_key or (f"{email}::{account_id}" if email and account_id else file_path),
+        'organizations': organizations,
+        'workspace_title': primary_workspace.get('title', ''),
+        'workspace_id': primary_workspace.get('id', ''),
+        'workspace_role': primary_workspace.get('role', ''),
+        'workspace_is_default': bool(primary_workspace.get('is_default')),
+        'workspace_display': format_workspace_display(organizations, primary_workspace),
         'sub_active_start': auth_info.get('chatgpt_subscription_active_start', ''),
         'sub_active_until': auth_info.get('chatgpt_subscription_active_until', ''),
         'last_refresh': auth_data.get('last_refresh', ''),
@@ -1362,10 +1406,11 @@ def print_accounts_table(
         return
 
     email_width = 32
+    plan_width = 6
     hourly_width = 20
     weekly_width = 20
-    plan_width = 6
-    table_width = 2 + 2 + email_width + 1 + hourly_width + 1 + weekly_width + 1 + plan_width + 2
+    space_width = 24
+    table_width = 2 + 2 + email_width + 1 + plan_width + 1 + hourly_width + 1 + weekly_width + 1 + space_width + 2
 
     print()
     print(f"{Colors.BOLD}  {title}{Colors.ENDC}")
@@ -1377,7 +1422,8 @@ def print_accounts_table(
         f"{pad_display('邮箱', email_width)} "
         f"{pad_display('PLAN', plan_width)} "
         f"{pad_display('5小时', hourly_width)} "
-        f"{pad_display('每周', weekly_width)}"
+        f"{pad_display('每周', weekly_width)} "
+        f"{pad_display('SPACE', space_width)}"
     )
     print(f"{Colors.BOLD}{header}{Colors.ENDC}")
     print(f"{Colors.DIM}  {'─' * table_width}{Colors.ENDC}")
@@ -1421,13 +1467,16 @@ def print_accounts_table(
         weekly_reset = format_reset_time_compact(acc.get('reset_at_weekly', 0))
         hourly_str = f"剩余{hourly_remaining}%({hourly_reset})"
         weekly_str = f"剩余{weekly_remaining}%({weekly_reset})"
+        space_text = acc.get('workspace_title', '') or acc.get('workspace_display', '') or '-'
+        space_text = truncate_display_text(space_text, space_width)
+        space_display = pad_display(space_text, space_width)
 
         # 带颜色的使用量显示
         hourly_display = f"{get_color(hourly_remaining)}{pad_display(hourly_str, hourly_width)}{Colors.ENDC}"
         weekly_display = f"{get_color(weekly_remaining)}{pad_display(weekly_str, weekly_width)}{Colors.ENDC}"
 
         index_cell = pad_display(str(i), 2)
-        print(f"  {index_cell} {email_cell} {plan_display} {hourly_display} {weekly_display}")
+        print(f"  {index_cell} {email_cell} {plan_display} {hourly_display} {weekly_display} {space_display}")
 
     if highlight_current_first and current_rows:
         for i, acc in enumerate(current_rows, 1):
@@ -1769,6 +1818,10 @@ def serialize_account(acc: dict, rank: Optional[int] = None) -> dict:
         'weekly_reset_at': acc.get('reset_at_weekly', 0),
         'hourly_reset': format_reset_time_compact(acc.get('reset_at_hourly', 0)),
         'weekly_reset': format_reset_time_compact(acc.get('reset_at_weekly', 0)),
+        'workspace_title': acc.get('workspace_title', ''),
+        'workspace_id': acc.get('workspace_id', ''),
+        'workspace_role': acc.get('workspace_role', ''),
+        'workspace_display': acc.get('workspace_display', ''),
     }
     return data
 
