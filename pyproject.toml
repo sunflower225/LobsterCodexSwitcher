@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "codex-switcher"
+version = "0.1.0"
+description = "Codex account switcher with live quota inspection and agent-friendly CLI commands"
+readme = "README.md"
+requires-python = ">=3.8"
+license = { text = "MIT" }
+authors = [
+  { name = "Mileson" }
+]
+scripts = { codex-switcher = "codex_switcher:main", csw = "codex_switcher:main" }
+
+[tool.setuptools]
+py-modules = ["codex_switcher"]
