@@ -100,6 +100,7 @@ jobs:
             desc "Codex account switcher with live quota view and agent-friendly CLI"
             homepage "https://github.com/${GITHUB_REPOSITORY}"
             url "https://github.com/${GITHUB_REPOSITORY}/archive/refs/tags/${VERSION}.tar.gz"
+            version "${VERSION#v}"
             sha256 "${SHA256}"
             license "MIT"
 
