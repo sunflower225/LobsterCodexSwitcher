@@ -5,6 +5,13 @@
 - 新手用户：打开后直接进入账号列表页面，查看 5 小时 / 每周余量并快速切换账号
 - Agent / 自动化脚本：通过非交互 CLI 参数获取排序后的账号列表、最佳账号和切换结果
 
+[![Release](https://img.shields.io/github/v/release/mileson/CJFCodexSwitcher?display_name=tag)](https://github.com/mileson/CJFCodexSwitcher/releases)
+[![License](https://img.shields.io/github/license/mileson/CJFCodexSwitcher)](./LICENSE)
+[![Python](https://img.shields.io/badge/python-3.8%2B-3776AB?logo=python&logoColor=white)](./pyproject.toml)
+[![Homebrew](https://img.shields.io/badge/Homebrew-installable-FBB040?logo=homebrew&logoColor=black)](https://github.com/mileson/homebrew-cjfcodexswitcher)
+
+![CJFCodexSwitcher Screenshot](docs/images/overview.png)
+
 ## Features
 
 - 实时查看所有账号的 5 小时与每周余量、下次重置时间
@@ -24,6 +31,16 @@
 | UI | Terminal TUI |
 
 ## Quick Start
+
+### 一句话安装
+
+```bash
+brew install mileson/cjfcodexswitcher/cjfcodexswitcher
+```
+
+```bash
+pipx install git+https://github.com/mileson/CJFCodexSwitcher.git
+```
 
 ### Prerequisites
 
@@ -46,6 +63,12 @@ codex-switcher
 
 ```bash
 pipx install git+https://github.com/mileson/CJFCodexSwitcher.git
+```
+
+如果你不用 `pipx`，也可以直接运行：
+
+```bash
+python3 -m pip install "git+https://github.com/mileson/CJFCodexSwitcher.git"
 ```
 
 安装完成后直接运行：
@@ -162,6 +185,12 @@ CJFCodexSwitcher/
 1. 先运行交互页面确认 UI 行为正常
 2. 运行非交互 CLI 命令确认 JSON 输出可用
 3. 如果改动影响工作流，更新项目内 Skill 和 README
+
+## Release
+
+首个公开版本 release notes：
+
+- [v0.1.0 Release Notes](docs/releases/v0.1.0.md)
 
 ## License
 
