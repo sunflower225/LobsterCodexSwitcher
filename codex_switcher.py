@@ -1076,17 +1076,21 @@ def print_current_account():
 
     return info
 
-def print_accounts_table(accounts: List[dict], title: str = "账号列表"):
+def print_accounts_table(
+    accounts: List[dict],
+    title: str = "账号列表",
+    highlight_current_first: bool = False,
+):
     """打印账号表格（包含使用量）"""
     if not accounts:
         print(f"{Colors.YELLOW}没有找到任何账号{Colors.ENDC}")
         return
 
     email_width = 32
-    plan_width = 6
     hourly_width = 20
     weekly_width = 20
-    table_width = 2 + 2 + email_width + 1 + plan_width + 1 + hourly_width + 1 + weekly_width + 2
+    plan_width = 6
+    table_width = 2 + 2 + email_width + 1 + hourly_width + 1 + weekly_width + 1 + plan_width + 2
 
     print()
     print(f"{Colors.BOLD}  {title}{Colors.ENDC}")
@@ -1103,7 +1107,11 @@ def print_accounts_table(accounts: List[dict], title: str = "账号列表"):
     print(f"{Colors.BOLD}{header}{Colors.ENDC}")
     print(f"{Colors.DIM}  {'─' * table_width}{Colors.ENDC}")
 
-    for i, acc in enumerate(accounts, 1):
+    current_rows = [acc for acc in accounts if acc.get('is_current')]
+    other_rows = [acc for acc in accounts if not acc.get('is_current')]
+    render_rows = current_rows + other_rows if highlight_current_first else accounts
+
+    for i, acc in enumerate(render_rows, 1):
         email = acc.get('email', 'Unknown')
         if acc.get('is_current'):
             email = f"[当前] {email}"
@@ -1146,6 +1154,9 @@ def print_accounts_table(accounts: List[dict], title: str = "账号列表"):
 
         index_cell = pad_display(str(i), 2)
         print(f"  {index_cell} {email_cell} {plan_display} {hourly_display} {weekly_display}")
+
+        if highlight_current_first and acc.get('is_current') and other_rows:
+            print()
 
     print()
 
@@ -1453,6 +1464,12 @@ def sort_accounts_for_agent(rows: List[dict]) -> List[dict]:
         ),
     )
 
+def sort_accounts_for_live_view(rows: List[dict]) -> List[dict]:
+    """查看余量页排序：当前账号置顶，其他账号按剩余数量排序"""
+    current_rows = [row for row in rows if row.get('is_current')]
+    other_rows = [row for row in rows if not row.get('is_current')]
+    return current_rows + sort_accounts_for_agent(other_rows)
+
 def serialize_account(acc: dict, rank: Optional[int] = None) -> dict:
     """将账号信息序列化为 CLI/JSON 输出"""
     data = {
@@ -1522,12 +1539,12 @@ def view_all_accounts():
         clear_screen()
         print_header()
         print(f"\n{Colors.CYAN}>>> 查看所有账号余量{Colors.ENDC}")
-        rows = sort_accounts_for_agent(load_live_account_rows(show_progress=True))
+        rows = sort_accounts_for_live_view(load_live_account_rows(show_progress=True))
         clear_screen()
         print_header()
         print(f"\n{Colors.CYAN}>>> 查看所有账号余量{Colors.ENDC}")
         if rows:
-            print_accounts_table(rows, "账号列表")
+            print_accounts_table(rows, "账号列表", highlight_current_first=True)
         else:
             print(f"\n{Colors.YELLOW}  当前未登录任何账号，且没有已存档账号{Colors.ENDC}")
 
