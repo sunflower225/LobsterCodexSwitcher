@@ -14,14 +14,22 @@ Fast switching and quota inspection for multiple Codex accounts.
 
 ![CJFCodexSwitcher Screenshot](docs/images/overview.png)
 
+## What It Does
+
+`CJFCodexSwitcher` is a CLI/TUI tool for people who use multiple Codex accounts and need to:
+
+- inspect live 5-hour and weekly quota windows
+- switch accounts quickly from a ranked list
+- automate account selection through stable non-interactive CLI commands
+
 ## Features
 
-- View live 5-hour and weekly quota windows for multiple Codex accounts
-- Start directly in the account list page without a separate main menu
-- Highlight the active account and keep it visually separated from the rest
-- Auto-refresh the page after switching accounts
-- Concurrent live refresh for better response time
-- Agent-friendly CLI commands: `--list`, `--json`, `--best`, `--switch`, `--save-current`
+- Direct startup into the live account list
+- Active account shown at the top and separated from the rest
+- Live refresh of quota windows and reset times
+- Automatic snapshot save for the current account when needed
+- Agent-friendly CLI: `--list`, `--json`, `--best`, `--switch`, `--save-current`
+- Homebrew and `pipx` friendly distribution
 - Repository-local skill for guided agent usage
 
 ## Tech Stack
@@ -54,7 +62,7 @@ python3 -m pip install "git+https://github.com/mileson/CJFCodexSwitcher.git"
 Requirements:
 
 - Python 3.8+
-- An existing local Codex login (`~/.codex/auth.json`)
+- An existing local Codex login at `~/.codex/auth.json`
 
 Install from source:
 
@@ -73,18 +81,16 @@ The tool opens directly into the live account view.
 Key fields:
 
 - `邮箱`: account email
-- `5小时`: 5-hour remaining quota and next reset time
-- `每周`: weekly remaining quota and next reset time
 - `PLAN`: plan type such as `TEAM`
-- `[当前]`: the active account, rendered at the top with visual separation
+- `5小时`: 5-hour remaining amount and next reset time
+- `每周`: weekly remaining amount and next reset time
+- `[当前]`: the active account, shown first
 
 Bottom actions:
 
 - `Enter`: refresh current page
 - `#`: switch to the selected account
 - `0`: exit the tool
-
-The current account is auto-saved when it first appears in the live view.
 
 ## Agent / CLI Commands
 
@@ -133,13 +139,11 @@ CJFCodexSwitcher/
 
 ## Security
 
-- Local account snapshots, usage caches, backups, and runtime scripts must stay out of version control
-- Real account data remains local on your machine
-- See [SECURITY.md](./SECURITY.md) for disclosure guidance
+See [SECURITY.md](./SECURITY.md).
 
 ## Contributing
 
-See [CONTRIBUTING.md](./CONTRIBUTING.md) for contribution guidelines.
+See [CONTRIBUTING.md](./CONTRIBUTING.md).
 
 ## Release
 

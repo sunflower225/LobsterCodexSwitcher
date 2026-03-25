@@ -1109,10 +1109,8 @@ def print_accounts_table(
 
     current_rows = [acc for acc in accounts if acc.get('is_current')]
     other_rows = [acc for acc in accounts if not acc.get('is_current')]
-    render_rows = current_rows + other_rows if highlight_current_first else accounts
-    current_count = len(current_rows) if highlight_current_first else 0
 
-    for i, acc in enumerate(render_rows, 1):
+    def render_row(i: int, acc: dict):
         email = acc.get('email', 'Unknown')
         if acc.get('is_current'):
             email = f"[当前] {email}"
@@ -1156,10 +1154,17 @@ def print_accounts_table(
         index_cell = pad_display(str(i), 2)
         print(f"  {index_cell} {email_cell} {plan_display} {hourly_display} {weekly_display}")
 
-        if highlight_current_first and current_count and i == current_count and other_rows:
+    if highlight_current_first and current_rows:
+        for i, acc in enumerate(current_rows, 1):
+            render_row(i, acc)
+        if other_rows:
             print()
-            print(f"{Colors.DIM}  {'·' * table_width}{Colors.ENDC}")
-            print()
+        start_index = len(current_rows) + 1
+        for offset, acc in enumerate(other_rows, start_index):
+            render_row(offset, acc)
+    else:
+        for i, acc in enumerate(accounts, 1):
+            render_row(i, acc)
 
     print()
 
