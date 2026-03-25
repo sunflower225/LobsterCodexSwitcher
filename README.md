@@ -157,7 +157,7 @@ See [CONTRIBUTING.md](./CONTRIBUTING.md).
 
 Current recommended release notes:
 
-- [v0.1.9 Release Notes](docs/releases/v0.1.9.md)
+- [v0.1.10 Release Notes](docs/releases/v0.1.10.md)
 
 ## License
 
