@@ -56,11 +56,10 @@ def get_codex_config_dir() -> Path:
 
 def get_switcher_dir() -> Path:
     """获取 Codex Switcher 数据目录"""
-    home = get_home_dir()
-    if platform.system() == "Windows":
-        return home / "codex-switcher"
-    else:
-        return home / "codex-switcher"
+    override = os.environ.get('CODEX_SWITCHER_DATA_DIR', '').strip()
+    if override:
+        return Path(override).expanduser()
+    return Path(__file__).resolve().parent
 
 def get_accounts_dir() -> Path:
     """获取账号存档目录"""
@@ -93,8 +92,20 @@ def get_proxy_login_command(email: str) -> str:
     ]
     binary = next((candidate for candidate in candidates if candidate.exists()), None)
     if binary:
-        return f"cd {shlex.quote(str(binary.parent))} && {shlex.quote(str(binary))} -codex-login -no-browser"
+        return f"{shlex.quote(str(binary))} -codex-login -no-browser"
     return "cliproxyapi -codex-login -no-browser"
+
+def get_proxy_login_cwd(email: str) -> Optional[Path]:
+    """推导 CLIProxyAPI 登录命令的工作目录"""
+    if os.environ.get('CODEX_SWITCHER_PROXY_LOGIN_COMMAND', '').strip():
+        return None
+
+    candidates = [
+        get_home_dir() / "workspace" / "openclaw" / "CLIProxyAPI" / "cliproxyapi",
+        Path.cwd() / "CLIProxyAPI" / "cliproxyapi",
+    ]
+    binary = next((candidate for candidate in candidates if candidate.exists()), None)
+    return binary.parent if binary else None
 
 # ============== 颜色配置 ==============
 
@@ -1387,20 +1398,29 @@ def sync_proxy_auth_for_email(email: str) -> dict:
         }
 
     chosen = max(matching, key=lambda path: (path.stat().st_mtime, path.name))
-    enabled_path = enable_proxy_auth_file(chosen)
+    try:
+        enabled_path = enable_proxy_auth_file(chosen)
 
-    disabled = []
-    for path in sorted(proxy_dir.glob('codex-*-team.json')):
-        if path == enabled_path:
-            continue
-        disabled.append(str(disable_proxy_auth_file(path).name))
+        disabled = []
+        for path in sorted(proxy_dir.glob('codex-*-team.json')):
+            if path == enabled_path:
+                continue
+            disabled.append(str(disable_proxy_auth_file(path).name))
 
-    for path in matching:
-        current = proxy_dir / path.name
-        if current == enabled_path or not current.exists():
-            continue
-        if '.disabled-' not in current.name:
-            disable_proxy_auth_file(current)
+        for path in matching:
+            current = proxy_dir / path.name
+            if current == enabled_path or not current.exists():
+                continue
+            if '.disabled-' not in current.name:
+                disable_proxy_auth_file(current)
+    except OSError as exc:
+        return {
+            'ok': False,
+            'reauth_required': False,
+            'matched_count': len(matching),
+            'enabled_email': target_email,
+            'warning': f'启用本地代理凭据失败: {exc}',
+        }
 
     restart = restart_local_proxy_service()
     return {
@@ -1425,7 +1445,12 @@ def ensure_proxy_auth_ready(email: str) -> dict:
         return result
 
     try:
-        subprocess.run(shlex.split(login_command), check=False)
+        login_cwd = get_proxy_login_cwd(email)
+        subprocess.run(
+            shlex.split(login_command),
+            check=False,
+            cwd=str(login_cwd) if login_cwd else None,
+        )
     except Exception as exc:
         result = dict(result)
         result['warning'] = f"{result.get('warning', '')}；自动执行登录失败: {exc}".strip('；')
