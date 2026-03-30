@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Codex Switcher 安装脚本
+LobsterCodexSwitcher 安装脚本
 
 支持平台: macOS, Linux, Windows
 """
@@ -84,7 +84,7 @@ def install():
     install_dir = get_install_dir()
     bin_dir = get_bin_dir()
 
-    print(f"{Colors.BOLD}Codex Switcher 安装程序{Colors.ENDC}")
+    print(f"{Colors.BOLD}LobsterCodexSwitcher 安装程序{Colors.ENDC}")
     print(f"{Colors.DIM}{'─' * 50}{Colors.ENDC}\n")
 
     # 1. 创建安装目录
@@ -162,7 +162,7 @@ def install():
 
             if str(bin_dir) not in content:
                 with open(shell_config, 'a') as f:
-                    f.write(f'\n# Codex Switcher\n')
+                    f.write(f'\n# LobsterCodexSwitcher\n')
                     f.write(f'{path_export}\n')
                 print(f"      {Colors.GREEN}已添加到 {shell_config}{Colors.ENDC}")
             else:
@@ -194,7 +194,7 @@ def uninstall():
     install_dir = get_install_dir()
     bin_dir = get_bin_dir()
 
-    print(f"{Colors.BOLD}Codex Switcher 卸载程序{Colors.ENDC}")
+    print(f"{Colors.BOLD}LobsterCodexSwitcher 卸载程序{Colors.ENDC}")
     print(f"{Colors.DIM}{'─' * 50}{Colors.ENDC}\n")
 
     # 删除安装目录（保留 accounts）

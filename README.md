@@ -1,25 +1,34 @@
-# CJFCodexSwitcher
+# LobsterCodexSwitcher
 
-Fast switching and quota inspection for multiple Codex accounts.
+Codex account switching and local proxy syncing for OpenClaw and Lobster workflows.
 
 [简体中文](./README_CN.md)
 
-[![Release](https://img.shields.io/github/v/release/mileson/CJFCodexSwitcher?display_name=tag)](https://github.com/mileson/CJFCodexSwitcher/releases)
-[![License](https://img.shields.io/github/license/mileson/CJFCodexSwitcher)](./LICENSE)
+[![License](https://img.shields.io/github/license/sunflower225/LobsterCodexSwitcher)](./LICENSE)
 [![Python](https://img.shields.io/badge/python-3.8%2B-3776AB?logo=python&logoColor=white)](./pyproject.toml)
-[![Homebrew](https://img.shields.io/badge/Homebrew-installable-FBB040?logo=homebrew&logoColor=black)](https://github.com/mileson/homebrew-cjfcodexswitcher)
-[![GitHub Stars](https://img.shields.io/github/stars/mileson/CJFCodexSwitcher?style=social)](https://github.com/mileson/CJFCodexSwitcher/stargazers)
-[![Last Commit](https://img.shields.io/github/last-commit/mileson/CJFCodexSwitcher)](https://github.com/mileson/CJFCodexSwitcher/commits/main)
-[![Downloads](https://img.shields.io/github/downloads/mileson/CJFCodexSwitcher/total)](https://github.com/mileson/CJFCodexSwitcher/releases)
+[![GitHub Stars](https://img.shields.io/github/stars/sunflower225/LobsterCodexSwitcher?style=social)](https://github.com/sunflower225/LobsterCodexSwitcher/stargazers)
+[![Last Commit](https://img.shields.io/github/last-commit/sunflower225/LobsterCodexSwitcher)](https://github.com/sunflower225/LobsterCodexSwitcher/commits/main)
 
-![CJFCodexSwitcher Screenshot](docs/images/overview.png)
+![LobsterCodexSwitcher Screenshot](docs/images/overview.png)
+
+## Origin
+
+This project is an enhanced fork of [mileson/CJFCodexSwitcher](https://github.com/mileson/CJFCodexSwitcher).
+
+Enhancements in this fork focus on OpenClaw and Lobster operations:
+
+- switch `~/.codex/auth.json`
+- sync `~/.cli-proxy-api` to the same account
+- restart local `cliproxyapi` automatically
+- trigger proxy OAuth login when the target account has no local proxy credential yet
 
 ## What It Does
 
-`CJFCodexSwitcher` is a CLI/TUI tool for people who use multiple Codex accounts and need to:
+`LobsterCodexSwitcher` is a CLI/TUI tool for people who use multiple Codex accounts and need to:
 
 - inspect live 5-hour and weekly quota windows
 - switch accounts quickly from a ranked list
+- keep the local CLI proxy aligned with the selected Codex account
 - automate account selection through stable non-interactive CLI commands
 
 ## Features
@@ -30,8 +39,9 @@ Fast switching and quota inspection for multiple Codex accounts.
 - Automatic snapshot save for the current account when needed
 - Add a new account directly from the quota view via the official `codex login` flow
 - Agent-friendly CLI: `--list`, `--json`, `--best`, `--switch`, `--save-current`
-- Homebrew and `pipx` friendly distribution
-- Repository-local skill for guided agent usage
+- Automatic local proxy auth sync after `--switch`
+- Automatic local `cliproxyapi` restart after proxy auth sync
+- Automatic proxy OAuth login prompt and execution when proxy credentials are missing
 
 ## Tech Stack
 
@@ -42,38 +52,21 @@ Fast switching and quota inspection for multiple Codex accounts.
 | Packaging | `pyproject.toml` + `setuptools` |
 | UI | Terminal TUI |
 
-## One-Line Install
+## Install
 
 ```bash
-brew tap mileson/cjfcodexswitcher && brew install cjfcodexswitcher
+git clone https://github.com/sunflower225/LobsterCodexSwitcher.git
+cd LobsterCodexSwitcher
+python3 install.py
+source ~/.zshrc  # or ~/.bashrc
+codex-switcher
 ```
-
-```bash
-pipx install git+https://github.com/mileson/CJFCodexSwitcher.git
-```
-
-If you do not use `pipx`:
-
-```bash
-python3 -m pip install "git+https://github.com/mileson/CJFCodexSwitcher.git"
-```
-
-## Quick Start
 
 Requirements:
 
 - Python 3.8+
 - A working `codex` CLI on your machine
-
-Install from source:
-
-```bash
-git clone https://github.com/mileson/CJFCodexSwitcher.git
-cd CJFCodexSwitcher
-python3 install.py
-source ~/.zshrc  # or ~/.bashrc
-codex-switcher
-```
+- A working local `cliproxyapi` if you want proxy sync
 
 ## Interactive Usage
 
@@ -95,12 +88,7 @@ Bottom actions:
 - `#`: switch to the selected account
 - `0`: exit the tool
 
-Notes:
-
-- If the current account is not archived yet, entering the live quota view will save it automatically
-- The add-account flow reuses the official browser login from `codex login`; in headless environments you can use `codex login --device-auth`
-
-## Agent / CLI Commands
+## CLI Commands
 
 ```bash
 codex-switcher --list
@@ -115,33 +103,40 @@ codex-switcher --save-current
 codex-switcher --refresh
 ```
 
-Ranking rule:
+## Proxy Sync Behavior
 
-1. Sort by 5-hour remaining count descending
-2. If tied, sort by weekly remaining count descending
-3. Use email ascending as the final tie-breaker
+After `codex-switcher --switch ...`, the tool now also handles local proxy state:
 
-## Agent Prompt
+1. Finds matching auth files under `~/.cli-proxy-api`
+2. Enables the newest matching auth file for the selected email
+3. Disables other active auth files
+4. Restarts `com.user.cliproxyapi`
+5. If no proxy auth exists for that email, runs proxy OAuth login and retries sync
 
-Use the repository-local skill:
+Example:
 
-```text
-/Users/mileson/codex-switcher/.codex/skills/codex-switcher-help/SKILL.md
+```bash
+codex-switcher --switch flow14662@gmail.com --json
 ```
 
-Then prefer non-interactive commands such as `--list --json`, `--best --json`, and `--switch best --json`.
+The JSON output includes a `proxy` block showing:
+
+- whether proxy sync succeeded
+- which auth file was enabled
+- whether a proxy login attempt was triggered
+- whether the local proxy restart succeeded
 
 ## Project Structure
 
 ```text
-CJFCodexSwitcher/
+LobsterCodexSwitcher/
 ├── codex_switcher.py
 ├── codex-switcher.py
 ├── install.py
 ├── pyproject.toml
 ├── README.md
 ├── README_CN.md
-├── .codex/skills/codex-switcher-help/
+├── tests/
 └── docs/
 ```
 
@@ -152,12 +147,6 @@ See [SECURITY.md](./SECURITY.md).
 ## Contributing
 
 See [CONTRIBUTING.md](./CONTRIBUTING.md).
-
-## Release
-
-Current recommended release notes:
-
-- [v0.1.10 Release Notes](docs/releases/v0.1.10.md)
 
 ## License
 

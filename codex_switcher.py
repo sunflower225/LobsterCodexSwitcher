@@ -74,6 +74,28 @@ def get_auth_file() -> Path:
     """获取当前 auth.json 文件路径"""
     return get_codex_config_dir() / "auth.json"
 
+def get_proxy_auth_dir() -> Path:
+    """获取 CLIProxyAPI 的 auth 目录"""
+    override = os.environ.get('CODEX_SWITCHER_PROXY_AUTH_DIR', '').strip()
+    if override:
+        return Path(override).expanduser()
+    return get_home_dir() / ".cli-proxy-api"
+
+def get_proxy_login_command(email: str) -> str:
+    """构造 CLIProxyAPI 重新登录命令"""
+    override = os.environ.get('CODEX_SWITCHER_PROXY_LOGIN_COMMAND', '').strip()
+    if override:
+        return override
+
+    candidates = [
+        get_home_dir() / "workspace" / "openclaw" / "CLIProxyAPI" / "cliproxyapi",
+        Path.cwd() / "CLIProxyAPI" / "cliproxyapi",
+    ]
+    binary = next((candidate for candidate in candidates if candidate.exists()), None)
+    if binary:
+        return f"cd {shlex.quote(str(binary.parent))} && {shlex.quote(str(binary))} -codex-login -no-browser"
+    return "cliproxyapi -codex-login -no-browser"
+
 # ============== 颜色配置 ==============
 
 class Colors:
@@ -1297,6 +1319,124 @@ def switch_to_account(account_file: str) -> bool:
     except Exception:
         return False
 
+def extract_proxy_auth_email(path: Path) -> str:
+    """从 CLIProxyAPI auth 文件名提取邮箱"""
+    match = re.match(r'^codex-[^-]+-(.+)-team\.json(?:\.disabled-.+)?$', path.name)
+    return match.group(1).lower() if match else ''
+
+def make_proxy_disabled_path(path: Path) -> Path:
+    """生成 disabled 文件名"""
+    timestamp = datetime.now().strftime('%Y%m%d-%H%M%S')
+    return path.with_name(f"{path.name}.disabled-{timestamp}")
+
+def enable_proxy_auth_file(path: Path) -> Path:
+    """启用 disabled 的 CLIProxyAPI auth 文件"""
+    marker = '.json.disabled-'
+    if marker not in path.name:
+        return path
+    enabled_name = path.name.split(marker, 1)[0] + '.json'
+    target = path.with_name(enabled_name)
+    if target.exists():
+        target.unlink()
+    path.rename(target)
+    return target
+
+def disable_proxy_auth_file(path: Path) -> Path:
+    """禁用活跃的 CLIProxyAPI auth 文件"""
+    if '.disabled-' in path.name or not path.name.endswith('.json'):
+        return path
+    target = make_proxy_disabled_path(path)
+    path.rename(target)
+    return target
+
+def restart_local_proxy_service() -> dict:
+    """重启本地 CLIProxyAPI 服务"""
+    label = os.environ.get('CODEX_SWITCHER_PROXY_SERVICE_LABEL', 'com.user.cliproxyapi')
+    if platform.system() != 'Darwin':
+        return {'ok': False, 'label': label, 'message': '当前平台未实现自动重启代理'}
+    try:
+        subprocess.run(
+            ['launchctl', 'kickstart', '-k', f'gui/{os.getuid()}/{label}'],
+            check=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        return {'ok': True, 'label': label, 'message': '代理已重启'}
+    except Exception as exc:
+        return {'ok': False, 'label': label, 'message': f'代理重启失败: {exc}'}
+
+def sync_proxy_auth_for_email(email: str) -> dict:
+    """同步 CLIProxyAPI 到目标邮箱，并重启代理服务"""
+    target_email = (email or '').strip().lower()
+    if not target_email:
+        return {'ok': False, 'warning': '缺少目标邮箱，无法同步本地代理'}
+
+    proxy_dir = get_proxy_auth_dir()
+    if not proxy_dir.exists():
+        return {'ok': False, 'warning': f'未找到代理凭据目录: {proxy_dir}'}
+
+    files = sorted(proxy_dir.glob('codex-*-team.json*'))
+    matching = [path for path in files if extract_proxy_auth_email(path) == target_email]
+    if not matching:
+        return {
+            'ok': False,
+            'reauth_required': True,
+            'enabled_email': target_email,
+            'login_command': get_proxy_login_command(target_email),
+            'warning': f'未找到 {target_email} 的本地代理凭据，请先执行 proxy OAuth 登录',
+        }
+
+    chosen = max(matching, key=lambda path: (path.stat().st_mtime, path.name))
+    enabled_path = enable_proxy_auth_file(chosen)
+
+    disabled = []
+    for path in sorted(proxy_dir.glob('codex-*-team.json')):
+        if path == enabled_path:
+            continue
+        disabled.append(str(disable_proxy_auth_file(path).name))
+
+    for path in matching:
+        current = proxy_dir / path.name
+        if current == enabled_path or not current.exists():
+            continue
+        if '.disabled-' not in current.name:
+            disable_proxy_auth_file(current)
+
+    restart = restart_local_proxy_service()
+    return {
+        'ok': restart.get('ok', False),
+        'reauth_required': False,
+        'matched_count': len(matching),
+        'enabled_email': target_email,
+        'enabled_file': enabled_path.name,
+        'disabled_files': disabled,
+        'restart': restart,
+        'warning': '' if restart.get('ok') else restart.get('message', ''),
+    }
+
+def ensure_proxy_auth_ready(email: str) -> dict:
+    """确保目标邮箱的本地代理凭据可用，必要时触发登录"""
+    result = sync_proxy_auth_for_email(email)
+    if not result.get('reauth_required'):
+        return result
+
+    login_command = result.get('login_command', '')
+    if not login_command:
+        return result
+
+    try:
+        subprocess.run(shlex.split(login_command), check=False)
+    except Exception as exc:
+        result = dict(result)
+        result['warning'] = f"{result.get('warning', '')}；自动执行登录失败: {exc}".strip('；')
+        return result
+
+    retried = sync_proxy_auth_for_email(email)
+    retried = dict(retried)
+    retried['login_attempted'] = True
+    retried['login_command'] = login_command
+    return retried
+
 # ============== 界面 ==============
 
 def print_header():
@@ -2162,8 +2302,21 @@ def run_switch_command(selector: str, json_output: bool) -> int:
         return 1
 
     if target.get('is_current'):
-        payload = {'ok': True, 'message': '目标账号已经是当前账号', 'account': serialize_account(target, 1)}
-        print(json.dumps(payload, ensure_ascii=False, indent=2) if json_output else payload['message'])
+        proxy_sync = ensure_proxy_auth_ready(target.get('email', ''))
+        payload = {
+            'ok': True,
+            'message': '目标账号已经是当前账号',
+            'account': serialize_account(target, 1),
+            'proxy': proxy_sync,
+        }
+        if json_output:
+            print(json.dumps(payload, ensure_ascii=False, indent=2))
+        else:
+            print(payload['message'])
+            if proxy_sync.get('ok'):
+                print(f"代理已同步: {proxy_sync.get('enabled_file', '')}")
+            elif proxy_sync.get('warning'):
+                print(f"代理未同步: {proxy_sync.get('warning')}")
         return 0
 
     switch_path = target.get('switch_path')
@@ -2174,14 +2327,25 @@ def run_switch_command(selector: str, json_output: bool) -> int:
 
     switched = switch_to_account(switch_path)
     if switched:
+        proxy_sync = ensure_proxy_auth_ready(target.get('email', ''))
         restart_info = finish_switch_with_restart(quiet=json_output)
         payload = {
             'ok': True,
             'message': '切换成功',
             'account': serialize_account(target, 1),
+            'proxy': proxy_sync,
             'restart': restart_info,
         }
-        print(json.dumps(payload, ensure_ascii=False, indent=2) if json_output else f"切换成功: {target.get('email', '')}")
+        if json_output:
+            print(json.dumps(payload, ensure_ascii=False, indent=2))
+        else:
+            print(f"切换成功: {target.get('email', '')}")
+            if proxy_sync.get('ok'):
+                print(f"代理已同步: {proxy_sync.get('enabled_file', '')}")
+            elif proxy_sync.get('warning'):
+                print(f"代理未同步: {proxy_sync.get('warning')}")
+                if proxy_sync.get('login_command'):
+                    print(f"执行登录: {proxy_sync.get('login_command')}")
         return 0
 
     payload = {'ok': False, 'error': '切换失败'}
