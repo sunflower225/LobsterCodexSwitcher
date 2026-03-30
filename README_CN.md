@@ -126,6 +126,28 @@ codex-switcher --switch flow14662@gmail.com --json
 - 是否触发了自动 proxy 登录
 - 代理重启是否成功
 
+## 小龙虾 / OpenClaw 实战示例
+
+如果你的小龙虾网关走的是本地 `CLIProxyAPI`，日常实际用法就是：
+
+```bash
+codex-switcher --switch flow14662@gmail.com --json
+```
+
+执行后会自动完成：
+
+1. 切换 `~/.codex/auth.json`
+2. 同步 `~/.cli-proxy-api`
+3. 重启 `com.user.cliproxyapi`
+4. 让 OpenClaw 直接继续用上同一个账号
+
+这样就不需要再手动做以前那套流程：
+
+- 先切 Codex 账号
+- 再去检查当前代理凭据
+- 再手动禁用旧 auth 文件
+- 最后重启 `cliproxyapi`
+
 ## 项目结构
 
 ```text

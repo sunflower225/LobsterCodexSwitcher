@@ -126,6 +126,28 @@ The JSON output includes a `proxy` block showing:
 - whether a proxy login attempt was triggered
 - whether the local proxy restart succeeded
 
+## OpenClaw / Lobster Example
+
+If your OpenClaw gateway uses a local `CLIProxyAPI`, this is the practical flow:
+
+```bash
+codex-switcher --switch flow14662@gmail.com --json
+```
+
+What happens:
+
+1. `~/.codex/auth.json` switches to the selected Codex account
+2. `~/.cli-proxy-api` is reconciled to the same email
+3. `com.user.cliproxyapi` is restarted
+4. OpenClaw can immediately keep using the matching proxy account
+
+This removes the old manual sequence of:
+
+- switching the Codex account
+- checking which proxy auth file is active
+- disabling stale proxy auth files
+- restarting `cliproxyapi`
+
 ## Project Structure
 
 ```text
